@@ -1,0 +1,277 @@
+Public Sub Worksheet_AbsenceExtraction()
+    
+    '--------------------------------------------------------------------------------------------------------------------------------
+    '---------------------------------------------------- YOU MUST READ THIS ! ------------------------------------------------------
+    '           
+    ' - Multiple variable declaration due to test. Wasn t use for production and was only "shit code" for POC.
+    ' - The range (cellOneLoop, cell Two Loop, ...) is not always used due to errors sometimes. This is not the normal way to use.    
+    '
+    '--------------------------------------------------------------------------------------------------------------------------------
+    '--------------------------------------------------------------------------------------------------------------------------------
+
+
+
+    'Initialisation des variables
+    Dim rngResult, rngResultName, rngResultDate, rngResultWeek, collaborator, absenceMCPP, publicHolidayCell As Range
+    Dim mybook As Workbook
+    Dim FSO As Object
+    Dim sheetExist As Boolean
+    Dim Sheet_Name, strToFind, strToFindMCPP, dossier, strToFindWeek, pathWorkbook, nbWeekLoop, nameAddress, publicHoliday, absenceDay, cellOne, cellTwo, cellThree, cellFour, cellFive, name, cellRowHigh, cellRowHighCollaborator, cellRowHighDate, nameWorkbook, sheet_NameProd, SourceFileName, DestinFileName, strDateFind As String
+    Dim count, i, boucle, sheetCount, isoWeek, loopWeek, isoWeekLoop, loopCollaborator, presence, cellOneLoop, cellTwoLoop, cellThreeLoop, cellFourLoop, cellFiveLoop, nbLoopCollaborator As Integer
+    
+    'Value
+    Sheet_Name = "Absences"
+    strToFind = "FindThisWord"
+    strDateFind = "Working days"
+    strToFindMCPP = "_Absences"
+    dossier = ThisWorkbook.Path & "\ARCHIVE Absences"
+    nameWorkbook = ActiveWorkbook.name
+    sheet_NameProd = "Plan de production"
+    sheetExist = False
+    count = 0
+    sheetCount = 0
+    
+    
+    'Custom values du tableau donnees
+    pathWorkbook = Sheets("Données").Range("L4").Value            'Chemin d'acces au tableau des absences (Exemple : Documents\Dev\)
+    nbWeekLoop = Sheets("Données").Range("L7").Value              'Nombre de semaine a effectuer. (Maximum 50)
+    nbLoopCollaborator = Sheets("Données").Range("L22").Value     'Total collaborateur + 10 (Marge d'ajout de cellule dans le tableau des absences)
+    
+    
+
+    'Suppression des messages et affichages utilisateur
+    Application.ScreenUpdating = False
+    Application.DisplayAlerts = False
+    
+    'Verification du chemin d'accces au tableau des absences (Si il y a un slash a la fin)
+    If Not Right(pathWorkbook, 1) = "\" Then
+        pathWorkbook = pathWorkbook + "\"
+    End If
+    
+    'Creation dossier d'archivage des absences
+    If Dir(dossier, vbDirectory) = "" Then
+        MkDir dossier
+    End If
+    
+    Dim fileName As Variant
+    fileName = Dir(pathWorkbook)
+    While fileName <> ""
+        If Not (fileName = nameWorkbook) Then
+            'Suppresion du tableau des donnees d'absences si deja present
+            For i = 1 To Workbooks(nameWorkbook).Sheets.count
+                If Sheets(i).name = Sheet_Name Then
+                    count = count + 1
+                    Exit For
+                End If
+            Next i
+            If count > 0 Then
+                'MsgBox ("Suppression d'un fichier d'absence deja present")
+                Sheets(Sheet_Name).Delete
+                Sheets(sheet_NameProd).Activate
+            End If
+            
+            'Chemin d'acces du fichier
+            Set mybook = _
+            Workbooks.Open _
+            (pathWorkbook & fileName)
+            'Copie du Workbook(Sheet) absence dans le workbook MCPP
+            Workbooks(fileName).Sheets(1).Copy Before:=Workbooks(nameWorkbook).Sheets(4)
+            ActiveSheet.name = Sheet_Name
+            'Fermeture du tableau des données d'absences
+            mybook.Close SaveChanges:=True
+            
+                    
+            'Pour copier a la fin dans l'archivage
+            SourceFileName = pathWorkbook & fileName
+            Name SourceFileName As (ThisWorkbook.Path & "\ARCHIVE Absences\" & "Absences-" & Format(Now(), "dd.mm.yy") & "-" & Format(Now(), "hh\hnn\mss") & ".xlsx")
+            DestinFileName = SourceFileName
+            
+            
+            sheetExist = True
+            sheetCount = sheetCount + 1
+        End If
+        'Set the fileName to the next file
+        fileName = Dir
+    Wend
+    If (sheetCount = 1) Then
+        If (sheetExist = True) Then
+            'Recherche de la cellule DSI_ETUDE_MC
+            With Worksheets(Sheet_Name).Cells
+                Set rngResult = .Find(strToFind, _
+                                LookIn:=xlValues, _
+                                lookat:=xlWhole, _
+                                MatchCase:=False)
+                                
+                If Not rngResult Is Nothing Then
+                    'Loop collaborateurs (Commence sur le premier collaborateur de DSI-ETUDE-MC)
+                    For loopCollaborator = 0 To nbLoopCollaborator
+                    
+                        'Case précise de la cellule collaborateur en évitant les cases supprimées (C60 - B61 - C62)
+                        cellRowHigh = (Sheets(Sheet_Name).Range(rngResult.Address(False, False)).Offset(0, 2).Address(False, False))
+                        cellRowHighCollaborator = (Sheets(Sheet_Name).Range(cellRowHigh).Offset(loopCollaborator, 0))
+        
+                        'Remise a 0 des variables pour la boucle
+                        isoWeekLoop = 0
+                        cellOneLoop = 1
+                        cellTwoLoop = 2
+                        cellThreeLoop = 3
+                        cellFourLoop = 4
+                        cellFiveLoop = 5
+        
+                        'Si "Total" ou case vide alors on ne rentre pas dans la boucle
+                        If Not cellRowHighCollaborator = "Total" Or cellRowHighCollaborator = "" Then
+        
+                            'Si cellRowHighCollaborator vide ou alors ne correspond pas a aucune cellule on case la boucle
+                            If Trim(cellRowHighCollaborator & vbNullString) = vbNullString Then
+                                Exit For
+                            End If
+                            
+                            'On separe le nom et prenom pour ne garder que le nom de famille
+                            name = (Split(cellRowHighCollaborator, ", ")(1))
+                            
+                            Set rngResultDate = .Find(strDateFind, _
+                                LookIn:=xlValues, _
+                                lookat:=xlWhole, _
+                                MatchCase:=False)
+                            cellRowHighDate = (Sheets(Sheet_Name).Range(rngResultDate.Address(False, False)).Offset(0, 1).Address(False, False))
+
+                            
+                            'Loop semaine
+                            For loopWeek = 0 To nbWeekLoop
+                                'On recupere le numero de semaine en rapport avec le lundi affiche en haut
+                                isoWeek = (WorksheetFunction.WeekNum(Sheets(Sheet_Name).Range(cellRowHighDate).Offset(0, isoWeekLoop), vbMonday) - 1)
+                                If (Len(isoWeek) = 1) Then
+                                    isoWeek = "0" & isoWeek
+                                End If
+                                'Ajout du S pour Plan de production
+                                strToFindWeek = "S" & isoWeek
+                                MsgBox (strToFindWeek)
+                                'On recupere  les valeurs de tous les jours de la semaine
+                                cellOne = (Sheets(Sheet_Name).Range(cellRowHigh).Offset(loopCollaborator, cellOneLoop).Value)
+                                cellTwo = (Sheets(Sheet_Name).Range(cellRowHigh).Offset(loopCollaborator, cellTwoLoop).Value)
+                                cellThree = (Sheets(Sheet_Name).Range(cellRowHigh).Offset(loopCollaborator, cellThreeLoop).Value)
+                                cellFour = (Sheets(Sheet_Name).Range(cellRowHigh).Offset(loopCollaborator, cellFourLoop).Value)
+                                cellFive = (Sheets(Sheet_Name).Range(cellRowHigh).Offset(loopCollaborator, cellFiveLoop).Value)
+                                'On effectue la somme
+                                presence = (5 - (cellOne + cellTwo + cellThree + cellFour + cellFive))
+                                
+                                'Gestion commentaire (Jour de la semaine)
+                                If Not presence = 0 Then
+                                    If cellOne = 0 Or cellOne = 0.5 Then
+                                        absenceDay = (Split(Sheets(Sheet_Name).Range(cellRowHighDate).Offset(0, (cellOneLoop - 1)).Value, "/")(0))
+                                    End If
+                                    If cellTwo = 0 Or cellTwo = 0.5 Then
+                                        If Not Trim(absenceDay & vbNullString) = vbNullString Then
+                                            absenceDay = absenceDay & ", " & (Split(Sheets(Sheet_Name).Range(cellRowHighDate).Offset(0, (cellTwoLoop - 1)).Value, "/")(0))
+                                        Else
+                                            absenceDay = (Split(Sheets(Sheet_Name).Range(cellRowHighDate).Offset(0, (cellTwoLoop - 1)).Value, "/")(0))
+                                        End If
+                                    End If
+                                    If cellThree = 0 Or cellThree = 0.5 Then
+                                        If Not Trim(absenceDay & vbNullString) = vbNullString Then
+                                            absenceDay = absenceDay & ", " & (Split(Sheets(Sheet_Name).Range(cellRowHighDate).Offset(0, (cellThreeLoop - 1)).Value, "/")(0))
+                                        Else
+                                            absenceDay = (Split(Sheets(Sheet_Name).Range(cellRowHighDate).Offset(0, (cellThreeLoop - 1)).Value, "/")(0))
+                                        End If
+                                    End If
+                                    If cellFour = 0 Or cellFour = 0.5 Then
+                                        If Not Trim(absenceDay & vbNullString) = vbNullString Then
+                                            absenceDay = absenceDay & ", " & (Split(Sheets(Sheet_Name).Range(cellRowHighDate).Offset(0, (cellFourLoop - 1)).Value, "/")(0))
+                                        Else
+                                            absenceDay = (Split(Sheets(Sheet_Name).Range(cellRowHighDate).Offset(0, (cellFourLoop - 1)).Value, "/")(0))
+                                        End If
+                                    End If
+                                    If cellFive = 0 Or cellFive = 0.5 Then
+                                        If Not Trim(absenceDay & vbNullString) = vbNullString Then
+                                            absenceDay = absenceDay & ", " & (Split(Sheets(Sheet_Name).Range(cellRowHighDate).Offset(0, (cellFiveLoop - 1)).Value, "/")(0))
+                                        Else
+                                            absenceDay = (Split(Sheets(Sheet_Name).Range(cellRowHighDate).Offset(0, (cellFiveLoop - 1)).Value, "/")(0))
+                                        End If
+                                    
+                                    End If
+                                End If
+                                'On change de tableau pour Plan de production
+                                With Worksheets(sheet_NameProd).Cells
+                                    'Recherche du collaborateur
+                                    Set rngResultName = .Find(strToFindMCPP, _
+                                            LookIn:=xlValues, _
+                                            lookat:=xlWhole, _
+                                            MatchCase:=False)
+                                     If Not rngResultName Is Nothing Then
+                                        Set absenceMCPP = Sheets(sheet_NameProd).Range(rngResultName.Address(False, False))
+                                        For boucle = 1 To nbLoopCollaborator
+                                            'Si le collaborateur dans Plan de production est identique avec celui dans absences
+                                            'alors la position de cellule devient nameAddress
+                                            If (absenceMCPP.Offset(boucle, 0).Value = strToFindMCPP) And (absenceMCPP.Offset(boucle, 2).Value = name) Then
+                                                nameAddress = absenceMCPP.Offset(boucle, 2).Address()
+                                                Exit For
+                                            Else
+                                                nameAddress = ""
+                                            End If
+                                        Next boucle
+                                     End If
+                                     
+                                     'Recherche du numéro de semaine dans Plan de production
+                                     Set rngResultWeek = .Find(strToFindWeek, _
+                                            LookIn:=xlValues, _
+                                            lookat:=xlWhole, _
+                                            MatchCase:=False)
+                                     If Not rngResultWeek Is Nothing Then
+                                        'On fait correspondre la semaine avec le collaborateur
+                                        If Not Trim(nameAddress & vbNullString) = vbNullString Then
+                                        publicHoliday = ((Split(rngResultWeek.Address(), "$")(1)) & (Split(rngResultWeek.Address(), "$")(2)) - 1)
+                                        publicHoliday = Replace(publicHoliday, " ", "")
+                                        nameAddress = (Split(rngResultWeek.Address(), "$")(1)) + (Split(nameAddress, "$")(2))
+                                        nameAddress = Replace(nameAddress, " ", "")
+                                        'Gestion jours féries
+                                        presence = presence - Range(publicHoliday).Value
+                                            'Ajout des absences
+                                            If presence = -1 Then
+                                                presence = 0
+                                            End If
+                                            Range(nameAddress).Value = presence
+                                            Set publicHolidayCell = Range(nameAddress)
+                                            If Not presence = 0 Then
+                                                
+                                                If Not publicHolidayCell.Comment Is Nothing Then
+                                                    Sheets(sheet_NameProd).Range(publicHolidayCell.Offset(0, 0).Address(False, False)).Comment.Delete
+                                                End If
+                                                Sheets(sheet_NameProd).Range(publicHolidayCell.Offset(0, 0).Address(False, False)).AddComment absenceDay
+                                            Else
+                                                Range(nameAddress).Value = Empty
+                                                If Not publicHolidayCell.Comment Is Nothing Then
+                                                    Sheets(sheet_NameProd).Range(publicHolidayCell.Offset(0, 0).Address(False, False)).Comment.Delete
+                                                End If
+                                            End If
+                                        End If
+                                     End If
+                                End With
+                                'On ajoute 7 jours pour continuer a boucler
+                                isoWeekLoop = isoWeekLoop + 7
+                                cellOneLoop = cellOneLoop + 7
+                                cellTwoLoop = cellTwoLoop + 7
+                                cellThreeLoop = cellThreeLoop + 7
+                                cellFourLoop = cellFourLoop + 7
+                                cellFiveLoop = cellFiveLoop + 7
+                                absenceDay = ""
+                            Next loopWeek
+                        End If
+                    Next loopCollaborator
+                End If
+            End With
+        Sheets(Sheet_Name).Delete
+        Sheets(sheet_NameProd).Range("B3").Value = (" " & Format(Now(), "dd/mm/yyyy") & " " & Format(Now(), "hh\:nn"))
+        Else
+            MsgBox ("Erreur : Verifier fichier à traiter")
+        End If
+    Else
+        MsgBox ("Le fichier indiqué est introuvable")
+    End If
+    
+    
+    Sheets(sheet_NameProd).Activate
+    
+    'Activation des messages et affichages utilisateur
+    Application.DisplayAlerts = True
+    Application.ScreenUpdating = True
+End Sub
